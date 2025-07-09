@@ -33,3 +33,4 @@ go.work.sum
 
 chirpy
 out
+*:Zone.Identifier
