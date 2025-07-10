@@ -1,26 +1,21 @@
 package main
 
-import _ "github.com/lib/pq"
-
 import (
 	"net/http"
 	"log"
 	"sync/atomic"
 	"fmt"
-	"encoding/json"	
-	"strings"
+	"encoding/json"
 	"os"
 	"context"
 	"database/sql"
+	"time"
+
 	"github.com/kmilanbanda/chirpy/internal/database"
 	"github.com/joho/godotenv"
 	"github.com/google/uuid"
-	"time"
+	_ "github.com/lib/pq"
 )
-
-type Chirp struct {
-	body	string `json:"body"`
-}
 
 type apiConfig struct  {
 	fileserverHits 	atomic.Int32
@@ -28,27 +23,7 @@ type apiConfig struct  {
 	platform	string
 }
 
-func getProfaneWords() map[string]struct{} {
-	words := map[string]struct{}{
-		"kerfuffle": 	{},
-		"sharbert":	{},
-		"fornax":	{},
-	}
 
-	return words
-}
-
-func censorProfanity(text string, profanities map[string]struct{}) string {
-	words := strings.Split(text, " ")
-	for i, word := range words {
-		_, exists := profanities[strings.ToLower(word)]
-		if exists {
-			words[i] = "****"
-		}
-	}
-
-	return strings.Join(words, " ")
-}
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -67,35 +42,7 @@ func handlerFunc(writer http.ResponseWriter, req *http.Request) {
 	}
 } 
 
-func handlerValidateChirp(w http.ResponseWriter, req *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
 
-	type request struct {
-		Body string `json:"body"`
-	}
-
-	var reqBody request
-	if err := json.NewDecoder(req.Body).Decode(&reqBody); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		resp := struct{ Error string `json:"error"` }{"Error decoding request parameters"}
-		dat, _ := json.Marshal(resp)
-		w.Write(dat)
-		return
-	} 
-
-	if len(reqBody.Body) > 140 {
-		w.WriteHeader(http.StatusBadRequest)
-		resp := struct{ Error string `json:"error"` }{"Chirp is too long"}
-		dat, _ := json.Marshal(resp)
-		w.Write(dat)
-		return
-	}
-	
-	w.WriteHeader(http.StatusOK)
-	resp := struct{ CleanedBody string `json:"cleaned_body"` }{censorProfanity(reqBody.Body, getProfaneWords())}
-	dat, _ := json.Marshal(resp)
-	w.Write(dat)
-}
 
 func (cfg *apiConfig) handlerCreateUser(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -155,6 +102,9 @@ func (cfg *apiConfig) handlerReset(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(""))
 		return
 	}
+
+	cfg.fileserverHits.Store(0)
+
 	err := cfg.db.ResetUsers(context.Background())
 	if err != nil {
 		log.Fatalf("Failed to reset user database: %v", err)
@@ -168,29 +118,43 @@ func (cfg *apiConfig) handlerReset(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	const filepathRoot = "."
+	const port = "8080"
+
+
 	godotenv.Load()
 	dbURL := os.Getenv("DB_URL")
+	if dbURL == "" {
+		log.Fatal("DB_URL must be set")
+	}
 	pform := os.Getenv("PLATFORM")
+	if pform == "" {
+		log.Fatal("PLATFORM must be set")
+	}
+
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		log.Fatalf("Fatal error occured during connection to database: %w", err)
 	}
 	dbQueries := database.New(db)
 
-	serveMux := http.NewServeMux()
-	server := &http.Server{
-		Addr:		":8080",
-		Handler: 	serveMux,
-	}
 	cfg := &apiConfig{
+		fileserverHits: atomic.Int32{},
 		db:		dbQueries,
 		platform:	pform,
 	}
 
+	serveMux := http.NewServeMux()
+	server := &http.Server{
+		Addr:		":" + port,
+		Handler: 	serveMux,
+	}
+	
 
-	fileHandler := http.FileServer(http.Dir("."))
+
+	fileHandler := http.FileServer(http.Dir(filepathRoot))
 	serveMux.HandleFunc("GET /api/healthz", handlerFunc)
-	serveMux.Handle("/app/", http.StripPrefix("/app/", cfg.middlewareMetricsInc(fileHandler)))
+	serveMux.Handle("/app/", http.StripPrefix("/app", cfg.middlewareMetricsInc(fileHandler)))
 	serveMux.HandleFunc("GET /admin/metrics", cfg.handlerHits)
 	serveMux.HandleFunc("POST /api/users", cfg.handlerCreateUser)
 	serveMux.HandleFunc("POST /admin/reset", cfg.handlerReset)
