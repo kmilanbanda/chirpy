@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"fmt"
 	"encoding/json"
+	"strings"
 )
 
 type Chirp struct {
@@ -14,6 +15,28 @@ type Chirp struct {
 
 type apiConfig struct  {
 	fileserverHits atomic.Int32
+}
+
+func getProfaneWords() map[string]struct{} {
+	words := map[string]struct{}{
+		"kerfuffle": 	{},
+		"sharbert":	{},
+		"fornax":	{},
+	}
+
+	return words
+}
+
+func censorProfanity(text string, profanities map[string]struct{}) string {
+	words := strings.Split(text, " ")
+	for i, word := range words {
+		_, exists := profanities[strings.ToLower(word)]
+		if exists {
+			words[i] = "****"
+		}
+	}
+
+	return strings.Join(words, " ")
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -58,7 +81,7 @@ func handlerValidateChirp(w http.ResponseWriter, req *http.Request) {
 	}
 	
 	w.WriteHeader(http.StatusOK)
-	resp := struct{ Valid bool `json:"valid"` }{true}
+	resp := struct{ CleanedBody string `json:"cleaned_body"` }{censorProfanity(reqBody.Body, getProfaneWords())}
 	dat, _ := json.Marshal(resp)
 	w.Write(dat)
 	return
