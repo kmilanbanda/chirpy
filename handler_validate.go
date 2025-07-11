@@ -4,6 +4,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"fmt"
+	"context"
+	"github.com/kmilanbanda/chirpy/internal/database"
+
+	"github.com/google/uuid"
 )
 
 func getProfaneWords() map[string]struct{} {
@@ -28,11 +33,12 @@ func censorProfanity(text string, profanities map[string]struct{}) string {
 	return strings.Join(words, " ")
 }
 
-func handlerValidateChirp(w http.ResponseWriter, req *http.Request) {
+func (cfg *apiConfig) handlerValidateChirp(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	type request struct {
-		Body string `json:"body"`
+		Body 	string `json:"body"`
+		UserID	uuid.UUID `json:"user_id"`
 	}
 
 	var reqBody request
@@ -42,7 +48,7 @@ func handlerValidateChirp(w http.ResponseWriter, req *http.Request) {
 		dat, _ := json.Marshal(resp)
 		w.Write(dat)
 		return
-	} 
+	}
 
 	if len(reqBody.Body) > 140 {
 		w.WriteHeader(http.StatusBadRequest)
@@ -51,9 +57,22 @@ func handlerValidateChirp(w http.ResponseWriter, req *http.Request) {
 		w.Write(dat)
 		return
 	}
+
+	createChirpParams := database.CreateChirpParams{
+		Body:	reqBody.Body,
+		UserID:	reqBody.UserID,
+	}
+
+	chirp, err := cfg.db.CreateChirp(context.Background(), createChirpParams)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		resp := struct{ Error string `json:"error"` }{fmt.Sprintf("Error creating chirp:  %w", err)}
+		dat, _ := json.Marshal(resp)
+		w.Write(dat)
+		return
+	}
 	
-	w.WriteHeader(http.StatusOK)
-	resp := struct{ CleanedBody string `json:"cleaned_body"` }{censorProfanity(reqBody.Body, getProfaneWords())}
-	dat, _ := json.Marshal(resp)
+	w.WriteHeader(http.StatusCreated)
+	dat, _ := json.Marshal(chirp)
 	w.Write(dat)
 }

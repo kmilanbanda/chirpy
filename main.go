@@ -92,28 +92,7 @@ func (cfg *apiConfig) handlerHits(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
 	_, err := w.Write([]byte(htmlResponse))
 	if err != nil {
-		log.Fatalf("Failed to write response for hits")
-	}
-}
-
-func (cfg *apiConfig) handlerReset(w http.ResponseWriter, r *http.Request) {
-	if cfg.platform != "dev" {
-		w.WriteHeader(http.StatusForbidden)
-		w.Write([]byte(""))
-		return
-	}
-
-	cfg.fileserverHits.Store(0)
-
-	err := cfg.db.ResetUsers(context.Background())
-	if err != nil {
-		log.Fatalf("Failed to reset user database: %v", err)
-	}
-
-	w.WriteHeader(http.StatusOK)
-	_, err = w.Write([]byte(""))
-	if err != nil {
-		log.Fatalf("Failed to write response for hits reset")
+		log.Fatalf("Error: failed to write response for hits")
 	}
 }
 
@@ -158,6 +137,6 @@ func main() {
 	serveMux.HandleFunc("GET /admin/metrics", cfg.handlerHits)
 	serveMux.HandleFunc("POST /api/users", cfg.handlerCreateUser)
 	serveMux.HandleFunc("POST /admin/reset", cfg.handlerReset)
-	serveMux.HandleFunc("POST /api/validate_chirp", handlerValidateChirp)
+	serveMux.HandleFunc("POST /api/chirps", cfg.handlerValidateChirp)
 	server.ListenAndServe()
 }
