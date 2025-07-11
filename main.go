@@ -138,5 +138,7 @@ func main() {
 	serveMux.HandleFunc("POST /api/users", cfg.handlerCreateUser)
 	serveMux.HandleFunc("POST /admin/reset", cfg.handlerReset)
 	serveMux.HandleFunc("POST /api/chirps", cfg.handlerValidateChirp)
+	serveMux.HandleFunc("GET /api/chirps", cfg.handlerGetChirps)
+	serveMux.HandleFunc("GET /api/chirps/{chirpID}", cfg.handlerGetChirp)
 	server.ListenAndServe()
 }
