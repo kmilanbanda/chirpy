@@ -12,10 +12,7 @@ func (cfg *apiConfig) handlerGetChirps(w http.ResponseWriter, req *http.Request)
 
 	chirps, err := cfg.db.GetChirps(context.Background())
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		resp := struct{ Error string `json:"error"` }{"Error getting chirps"}
-		dat, _ := json.Marshal(resp)
-		w.Write(dat)
+		handleErrorResponse(w, http.StatusInternalServerError, "Error getting chirps")
 		return	
 	}
 
@@ -29,19 +26,13 @@ func (cfg *apiConfig) handlerGetChirp(w http.ResponseWriter, req *http.Request) 
 
 	chirpID, err := uuid.Parse(req.PathValue("chirpID"))
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		resp := struct{ Error string `json:"error"` }{"Error parsing UUID"}
-		dat, _ := json.Marshal(resp)
-		w.Write(dat)
-		return		
+		handleErrorResponse(w, http.StatusNotFound, "Error parsing UUID")
+		return
 	}
 
 	chirp, err := cfg.db.GetChirp(context.Background(), uuid.UUID(chirpID))
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		resp := struct{ Error string `json:"error"` }{"Error getting chirp: id not found"}
-		dat, _ := json.Marshal(resp)
-		w.Write(dat)
+		handleErrorResponse(w, http.StatusNotFound, "Error getting chirp: id not found")	
 		return	
 	}
 

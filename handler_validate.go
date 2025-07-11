@@ -43,18 +43,12 @@ func (cfg *apiConfig) handlerValidateChirp(w http.ResponseWriter, req *http.Requ
 
 	var reqBody request
 	if err := json.NewDecoder(req.Body).Decode(&reqBody); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		resp := struct{ Error string `json:"error"` }{"Error decoding request parameters"}
-		dat, _ := json.Marshal(resp)
-		w.Write(dat)
+		handleErrorResponse(w, http.StatusInternalServerError, "Error decoding request parameters")
 		return
 	}
 
 	if len(reqBody.Body) > 140 {
-		w.WriteHeader(http.StatusBadRequest)
-		resp := struct{ Error string `json:"error"` }{"Chirp is too long"}
-		dat, _ := json.Marshal(resp)
-		w.Write(dat)
+		handleErrorResponse(w, http.StatusBadRequest, "Chirp is too long")	
 		return
 	}
 
@@ -65,10 +59,7 @@ func (cfg *apiConfig) handlerValidateChirp(w http.ResponseWriter, req *http.Requ
 
 	chirp, err := cfg.db.CreateChirp(context.Background(), createChirpParams)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		resp := struct{ Error string `json:"error"` }{fmt.Sprintf("Error creating chirp:  %w", err)}
-		dat, _ := json.Marshal(resp)
-		w.Write(dat)
+		handleErrorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Error creating chirp: %w", err))
 		return
 	}
 	
