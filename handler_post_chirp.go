@@ -7,8 +7,7 @@ import (
 	"fmt"
 	"context"
 	"github.com/kmilanbanda/chirpy/internal/database"
-
-	"github.com/google/uuid"
+	"github.com/kmilanbanda/chirpy/internal/auth"
 )
 
 func getProfaneWords() map[string]struct{} {
@@ -33,12 +32,22 @@ func censorProfanity(text string, profanities map[string]struct{}) string {
 	return strings.Join(words, " ")
 }
 
-func (cfg *apiConfig) handlerValidateChirp(w http.ResponseWriter, req *http.Request) {
+func (cfg *apiConfig) handlerPostChirp(w http.ResponseWriter, req *http.Request) {
+	token, err := auth.GetBearerToken(req.Header)
+	if err != nil {
+		handleErrorResponse(w, http.StatusUnauthorized, "Failed to read header")
+		return
+	}
+	validatedUserID, err := auth.ValidateJWT(token, cfg.secret)
+	if err != nil {
+		handleErrorResponse(w, http.StatusUnauthorized, "Invalid token")
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 
 	type request struct {
 		Body 	string `json:"body"`
-		UserID	uuid.UUID `json:"user_id"`
 	}
 
 	var reqBody request
@@ -47,19 +56,19 @@ func (cfg *apiConfig) handlerValidateChirp(w http.ResponseWriter, req *http.Requ
 		return
 	}
 
-	if len(reqBody.Body) > 140 {
+	if len(reqBody.Body) > cfg.maxChirpLength {
 		handleErrorResponse(w, http.StatusBadRequest, "Chirp is too long")	
 		return
 	}
 
 	createChirpParams := database.CreateChirpParams{
 		Body:	reqBody.Body,
-		UserID:	reqBody.UserID,
+		UserID:	validatedUserID,
 	}
 
 	chirp, err := cfg.db.CreateChirp(context.Background(), createChirpParams)
 	if err != nil {
-		handleErrorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Error creating chirp: %w", err))
+		handleErrorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Error creating chirp: %v", err))
 		return
 	}
 	

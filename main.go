@@ -10,7 +10,9 @@ import (
 	"context"
 	"database/sql"
 	"time"
+	"strconv"
 
+	"github.com/kmilanbanda/chirpy/internal/auth"
 	"github.com/kmilanbanda/chirpy/internal/database"
 	"github.com/joho/godotenv"
 	"github.com/google/uuid"
@@ -21,6 +23,8 @@ type apiConfig struct  {
 	fileserverHits 	atomic.Int32
 	db		*database.Queries
 	platform	string
+	maxChirpLength	int
+	secret		string
 }
 
 
@@ -48,24 +52,29 @@ func (cfg *apiConfig) handlerCreateUser(w http.ResponseWriter, req *http.Request
 	w.Header().Set("Content-Type", "application/json")
 
 	type request struct {
+		Password string `json:"password"`
 		Email string `json:"email"`
 	}
 
 	var reqBody request
 	if err := json.NewDecoder(req.Body).Decode(&reqBody); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		resp := struct{ Error string `json:"error"` }{"Error decoding request parameters"}
-		dat, _ := json.Marshal(resp)
-		w.Write(dat)
+		handleErrorResponse(w, http.StatusInternalServerError, "Error decoding request parameters")
 		return	
 	}
 
-	user, err := cfg.db.CreateUser(context.Background(), reqBody.Email)
+	hashedPassword, err := auth.HashPassword(reqBody.Password)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		resp := struct{ Error string `json:"error"` }{fmt.Sprintf("Error creating user: %v", err)}
-		dat, _ := json.Marshal(resp)
-		w.Write(dat)
+		handleErrorResponse(w, http.StatusInternalServerError, "Error hashing password")
+		return
+	}
+	createUserParams := database.CreateUserParams {
+		Email:		reqBody.Email,
+		HashedPassword:	hashedPassword,
+	}
+
+	user, err := cfg.db.CreateUser(context.Background(), createUserParams)
+	if err != nil {
+		handleErrorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Error creating user: %v", err))
 		return
 	}
 
@@ -106,21 +115,39 @@ func main() {
 	if dbURL == "" {
 		log.Fatal("DB_URL must be set")
 	}
-	pform := os.Getenv("PLATFORM")
-	if pform == "" {
+
+	envPlatform := os.Getenv("PLATFORM")
+	if envPlatform == "" {
 		log.Fatal("PLATFORM must be set")
 	}
 
+	envMaxChirpLength, err := strconv.Atoi(os.Getenv("MAX_CHIRP_LENGTH"))
+	if err != nil {
+		log.Fatalf("Fatal error occured converting a string if you can believe it: %v", err)
+	}
+	if envMaxChirpLength == 0 {
+		log.Fatal("MAX_CHIRP_LENGTH must be set")
+	}
+
+	secret := os.Getenv("SECRET")
+	if secret == "" {
+		log.Fatal("SECRET must be set")
+	}
+
+
+
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
-		log.Fatalf("Fatal error occured during connection to database: %w", err)
+		log.Fatalf("Fatal error occured during connection to database: %v", err)
 	}
 	dbQueries := database.New(db)
 
 	cfg := &apiConfig{
 		fileserverHits: atomic.Int32{},
 		db:		dbQueries,
-		platform:	pform,
+		platform:	envPlatform,
+		maxChirpLength: envMaxChirpLength,
+		secret:		secret,
 	}
 
 	serveMux := http.NewServeMux()
@@ -136,9 +163,13 @@ func main() {
 	serveMux.Handle("/app/", http.StripPrefix("/app", cfg.middlewareMetricsInc(fileHandler)))
 	serveMux.HandleFunc("GET /admin/metrics", cfg.handlerHits)
 	serveMux.HandleFunc("POST /api/users", cfg.handlerCreateUser)
+	serveMux.HandleFunc("POST /api/login", cfg.handlerLogin)
 	serveMux.HandleFunc("POST /admin/reset", cfg.handlerReset)
-	serveMux.HandleFunc("POST /api/chirps", cfg.handlerValidateChirp)
+	serveMux.HandleFunc("POST /api/chirps", cfg.handlerPostChirp)
 	serveMux.HandleFunc("GET /api/chirps", cfg.handlerGetChirps)
 	serveMux.HandleFunc("GET /api/chirps/{chirpID}", cfg.handlerGetChirp)
+	serveMux.HandleFunc("POST /api/refresh", cfg.handlerRefresh)
+	serveMux.HandleFunc("POST /api/revoke", cfg.handlerRevoke)
+	serveMux.HandleFunc("PUT /api/users", cfg.handlerUpdateUser)
 	server.ListenAndServe()
 }
