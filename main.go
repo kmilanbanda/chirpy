@@ -25,6 +25,7 @@ type apiConfig struct  {
 	platform	string
 	maxChirpLength	int
 	secret		string
+	polkaKey	string
 }
 
 
@@ -59,7 +60,7 @@ func (cfg *apiConfig) handlerCreateUser(w http.ResponseWriter, req *http.Request
 	var reqBody request
 	if err := json.NewDecoder(req.Body).Decode(&reqBody); err != nil {
 		handleErrorResponse(w, http.StatusInternalServerError, "Error decoding request parameters")
-		return	
+		return
 	}
 
 	hashedPassword, err := auth.HashPassword(reqBody.Password)
@@ -84,11 +85,13 @@ func (cfg *apiConfig) handlerCreateUser(w http.ResponseWriter, req *http.Request
 		CreatedAt	time.Time	`json:"created_at"`
 		UpdatedAt	time.Time	`json:"updated_at"`
 		Email		string		`json:"email"`
+		IsChirpyRed	bool		`json:"is_chirpy_red"`
 	}{
 		ID:		user.ID,
 		CreatedAt:	user.CreatedAt,
 		UpdatedAt:	user.UpdatedAt,
 		Email:		user.Email,
+		IsChirpyRed:	user.IsChirpyRed,
 	}
 	dat, _  := json.Marshal(resp)
 	w.Write(dat)
@@ -134,6 +137,11 @@ func main() {
 		log.Fatal("SECRET must be set")
 	}
 
+	polkaKey := os.Getenv("POLKA_KEY")
+	if polkaKey == "" {
+		log.Fatal("POLKA_KEY must be set")
+	}
+
 
 
 	db, err := sql.Open("postgres", dbURL)
@@ -148,6 +156,7 @@ func main() {
 		platform:	envPlatform,
 		maxChirpLength: envMaxChirpLength,
 		secret:		secret,
+		polkaKey:	polkaKey,
 	}
 
 	serveMux := http.NewServeMux()
@@ -172,5 +181,6 @@ func main() {
 	serveMux.HandleFunc("POST /api/revoke", cfg.handlerRevoke)
 	serveMux.HandleFunc("PUT /api/users", cfg.handlerUpdateUser)
 	serveMux.HandleFunc("DELETE /api/chirps/{chirpID}", cfg.handlerDeleteChirp)
+	serveMux.HandleFunc("POST /api/polka/webhooks", cfg.handlerUpgradeUser)
 	server.ListenAndServe()
 }
