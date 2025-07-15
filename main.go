@@ -108,65 +108,53 @@ func (cfg *apiConfig) handlerHits(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func main() {
-	const filepathRoot = "."
-	const port = "8080"
-
-
-	godotenv.Load()
+func loadConfig() (*apiConfig, error) {
 	dbURL := os.Getenv("DB_URL")
 	if dbURL == "" {
-		log.Fatal("DB_URL must be set")
+		return nil, fmt.Errorf("DB_URL must be set")
 	}
 
 	envPlatform := os.Getenv("PLATFORM")
 	if envPlatform == "" {
-		log.Fatal("PLATFORM must be set")
+		return nil, fmt.Errorf("PLATFORM must be set")
 	}
 
 	envMaxChirpLength, err := strconv.Atoi(os.Getenv("MAX_CHIRP_LENGTH"))
 	if err != nil {
-		log.Fatalf("Fatal error occured converting a string if you can believe it: %v", err)
+		return nil, fmt.Errorf("Fatal error occured converting a string: %v", err)
 	}
 	if envMaxChirpLength == 0 {
-		log.Fatal("MAX_CHIRP_LENGTH must be set")
+		return nil, fmt.Errorf("MAX_CHIRP_LENGTH must be set")
 	}
 
 	secret := os.Getenv("SECRET")
 	if secret == "" {
-		log.Fatal("SECRET must be set")
+		return nil, fmt.Errorf("SECRET must be set")
 	}
 
 	polkaKey := os.Getenv("POLKA_KEY")
 	if polkaKey == "" {
-		log.Fatal("POLKA_KEY must be set")
+		return nil, fmt.Errorf("POLKA_KEY must be set")
 	}
-
-
 
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
-		log.Fatalf("Fatal error occured during connection to database: %v", err)
+		return nil, fmt.Errorf("Fatal error occured during connection to database: %v", err)
 	}
 	dbQueries := database.New(db)
 
-	cfg := &apiConfig{
+	return &apiConfig{
 		fileserverHits: atomic.Int32{},
 		db:		dbQueries,
 		platform:	envPlatform,
 		maxChirpLength: envMaxChirpLength,
 		secret:		secret,
 		polkaKey:	polkaKey,
-	}
+	}, nil 
+}
 
-	serveMux := http.NewServeMux()
-	server := &http.Server{
-		Addr:		":" + port,
-		Handler: 	serveMux,
-	}
-	
-
-
+func (cfg *apiConfig) setupEndpoints(serveMux *http.ServeMux) {
+	const filepathRoot = "."
 	fileHandler := http.FileServer(http.Dir(filepathRoot))
 	serveMux.HandleFunc("GET /api/healthz", handlerFunc)
 	serveMux.Handle("/app/", http.StripPrefix("/app", cfg.middlewareMetricsInc(fileHandler)))
@@ -182,5 +170,27 @@ func main() {
 	serveMux.HandleFunc("PUT /api/users", cfg.handlerUpdateUser)
 	serveMux.HandleFunc("DELETE /api/chirps/{chirpID}", cfg.handlerDeleteChirp)
 	serveMux.HandleFunc("POST /api/polka/webhooks", cfg.handlerUpgradeUser)
-	server.ListenAndServe()
+}
+
+func main() {
+	godotenv.Load()
+	cfg, err := loadConfig()
+	if err != nil {
+		log.Fatalf("Fatal error occured during API Config setup")
+	}
+
+	
+	const port = "8080"
+	
+	serveMux := http.NewServeMux()
+	server := &http.Server{
+		Addr:		":" + port,
+		Handler: 	serveMux,
+	}
+
+		
+	cfg.setupEndpoints(serveMux)
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Fatalf("Server errror: %v", err)
+	}
 }
